@@ -20,29 +20,16 @@ from .config import (
     OUTPUT_DIR,
     LOG_LEVEL,
     TECH_CATEGORIES,
+    SOURCES_CONFIG,
 )
+
+from .web_fetcher import NewsCollector
 
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL),
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
-
-
-MOCK_NEWS_DATA = [
-    {"title": "OpenAI发布GPT-5预览版，多项能力大幅提升", "content": "OpenAI今日发布GPT-5预览版本，在推理能力、多模态理解、长文本处理等方面均有显著提升，引发行业广泛关注。", "score": 0.95, "topic": "大模型", "source": "OpenAI"},
-    {"title": "Claude 4正式发布，编程能力超越GPT-5", "content": "Anthropic发布Claude 4，在代码生成、调试等编程任务中表现超越GPT-5，同时保持了对安全和伦理的高标准要求。", "score": 0.92, "topic": "大模型", "source": "Anthropic"},
-    {"title": "谷歌发布Gemini 2.5 Pro，数学推理能力大幅提升", "content": "谷歌DeepMind发布Gemini 2.5 Pro，在数学推理、代码生成等基准测试中创下新纪录，多项指标超越竞品。", "score": 0.90, "topic": "大模型", "source": "Google AI"},
-    {"title": "Meta开源Llama 4，参数规模创纪录", "content": "Meta宣布开源Llama 4，参数规模达到万亿级别，性能接近闭源模型，为开源社区带来重大利好。", "score": 0.88, "topic": "开源动态", "source": "Meta AI"},
-    {"title": "Figure Helix人形机器人实现自主决策", "content": "Figure AI发布新一代人形机器人Helix，具备完整的自主决策能力，可在复杂环境中独立完成多种任务。", "score": 0.87, "topic": "具身智能", "source": "Figure AI"},
-    {"title": "智元机器人发布通用具身智能底座", "content": "智元机器人发布通用具身智能底座GO-1，支持多种机器人形态，大幅降低具身智能开发门槛。", "score": 0.85, "topic": "具身智能", "source": "智元机器人"},
-    {"title": "AutoGPT 5.0发布，自主Agent能力显著增强", "content": "AutoGPT发布5.0版本，在多步骤任务规划、多Agent协作等方面实现突破，Agent能力接近人类水平。", "score": 0.84, "topic": "智能体", "source": "AutoGPT"},
-    {"title": "微软发布多Agent协作平台AutoGen 3.0", "content": "微软发布AutoGen 3.0，支持构建复杂的多Agent系统，提供企业级Agent编排能力。", "score": 0.82, "topic": "智能体", "source": "Microsoft AI"},
-    {"title": "英伟达发布新一代AI芯片Blackwell Ultra", "content": "英伟达发布Blackwell Ultra AI芯片，性能较前代提升3倍，为大模型训练和推理提供更强算力支持。", "score": 0.80, "topic": "算力基础设施", "source": "NVIDIA"},
-    {"title": "华为昇腾910C正式商用，国产AI芯片再突破", "content": "华为发布昇腾910C商用版本，性能接近A100，国产AI芯片生态进一步完善。", "score": 0.78, "topic": "算力基础设施", "source": "华为"},
-    {"title": "OpenAI与多家医疗机构合作推进AI医疗应用", "content": "OpenAI宣布与多家顶级医疗机构合作，共同探索AI在疾病诊断、药物研发等领域的应用。", "score": 0.76, "topic": "应用落地", "source": "OpenAI"},
-    {"title": "国内大模型首次通过医疗执业医师资格考试", "content": "国内某大模型首次通过医疗执业医师资格考试，AI在医疗领域的应用迈出重要一步。", "score": 0.75, "topic": "应用落地", "source": "行业动态"},
-]
 
 
 class DailyNewsCollector:
@@ -55,10 +42,12 @@ class DailyNewsCollector:
                 self.client = TavilyClient(api_key=self.api_key)
             except Exception as e:
                 logger.warning(f"Tavily client init failed: {e}")
+        
+        self.news_collector = NewsCollector(SOURCES_CONFIG)
 
     def search_topic(self, topic: str, days: int = 1) -> List[Dict]:
         if not self.client:
-            return {"answer": f"{topic}领域今日传来多项进展，技术持续迭代升级。", "results": []}
+            return {"answer": "", "results": []}
         
         query = f"{topic} AI news"
         try:
@@ -73,7 +62,7 @@ class DailyNewsCollector:
             return results
         except Exception as e:
             logger.error(f"搜索 '{topic}' 失败: {e}")
-            return {"answer": f"{topic}领域今日传来多项进展。", "results": []}
+            return {"answer": "", "results": []}
 
     def collect_daily_news(self, date: Optional[datetime] = None) -> Dict:
         date = date or datetime.now()
@@ -86,29 +75,34 @@ class DailyNewsCollector:
             "articles": [],
         }
 
-        for topic in DAILY_TOPICS:
-            logger.info(f"正在搜索: {topic}")
-            result = self.search_topic(topic)
-            if result:
-                all_results["topics"][topic] = result
+        web_articles = self.news_collector.collect(max_items=15)
+        if web_articles:
+            logger.info(f"从Web源获取 {len(web_articles)} 条新闻")
+            all_results["articles"].extend(web_articles)
 
         if self.client:
-            for item in result.get("results", []):
-                article = {
-                    "title": item.get("title", ""),
-                    "url": item.get("url", ""),
-                    "content": item.get("content", "")[:200],
-                    "score": item.get("score", 0),
-                    "topic": topic,
-                    "source": item.get("url", "").split("/")[2] if "/" in item.get("url", "") else "Unknown",
-                }
-                all_results["articles"].append(article)
-        else:
-            all_results["articles"] = MOCK_NEWS_DATA.copy()
+            for topic in DAILY_TOPICS[:5]:
+                logger.info(f"正在搜索: {topic}")
+                result = self.search_topic(topic)
+                if result:
+                    all_results["topics"][topic] = result
+                    for item in result.get("results", []):
+                        article = {
+                            "title": item.get("title", ""),
+                            "url": item.get("url", ""),
+                            "content": item.get("content", "")[:200],
+                            "score": item.get("score", 0),
+                            "topic": topic,
+                            "source": item.get("url", "").split("/")[2] if "/" in item.get("url", "") else "Unknown",
+                        }
+                        all_results["articles"].append(article)
 
         if all_results["topics"]:
             first_topic = list(all_results["topics"].values())[0]
             all_results["ai_answer"] = first_topic.get("answer", "")
+
+        if not all_results["ai_answer"] and web_articles:
+            all_results["ai_answer"] = f"今日AI领域共收集{len(web_articles)}条最新资讯，涵盖智能体、大模型等技术领域。"
 
         return all_results
 
@@ -170,7 +164,10 @@ class DailyAnalyst:
 
         for i, article in enumerate(top_articles, 1):
             source = article.get("source", "")
-            content += f"{i}. {article['title']}\n   🔗 {source}\n\n"
+            content += f"{i}. {article['title']}\n"
+            if source:
+                content += f"   🔗 {source}\n"
+            content += "\n"
 
         content += "📊 热门板块\n\n"
         
@@ -299,11 +296,11 @@ def main():
     analyst = DailyAnalyst(collector)
     result = analyst.run(target_date)
     
-    print("每日分析完成!")
-    print(f"日期: {result['date']}")
-    print(f"微信公众号文章: {result['wechat_path']}")
-    print(f"完整文章: {result['article_path']}")
-    print(f"收集文章数: {result['articles_count']}")
+    print("Daily news generated!")
+    print(f"Date: {result['date']}")
+    print(f"WeChat article: {result['wechat_path']}")
+    print(f"Full article: {result['article_path']}")
+    print(f"Articles collected: {result['articles_count']}")
 
 
 if __name__ == "__main__":

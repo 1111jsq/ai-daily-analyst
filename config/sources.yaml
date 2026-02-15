@@ -1,17 +1,6 @@
 rss: []
 
 web:
-  - name: 36氪AI
-    url: https://www.36kr.com/information/AI/
-    selector:
-      item: "a[href*='/p/']"
-      url_attr: href
-      title_attr: text
-    filters:
-      include_keywords: [AI, 人工智能, 大模型, Agent, 智能体]
-    tags: [国内, 媒体, 商业]
-    enabled: true
-
   - name: AIbase资讯
     url: https://news.aibase.com/zh/news
     selector:
@@ -34,52 +23,19 @@ web:
       list_path: "data.list"
       title_path: "title"
       summary_path: "description"
+      published_path: "createTime"
       url_template: "https://news.aibase.com/zh/news/{oid}"
       base_url: "https://news.aibase.com"
-      max_pages: 5
+      max_pages: 10
+      stop_on_empty: true
     tags: [国内, 聚合, 行业]
-    enabled: true
-
-  - name: 腾讯云开发者
-    url: https://cloud.tencent.com/developer
-    selector:
-      item: "a[href*='/developer/article/']"
-      url_attr: href
-      title_attr: text
-    filters:
-      include_keywords: [AI, 大模型, Agent, 智能体]
-    tags: [国内, 厂商, 技术]
-    enabled: true
-
-  - name: 阿里云开发者社区
-    url: https://developer.aliyun.com/
-    selector:
-      item: "a[href*='/article/']"
-      url_attr: href
-      title_attr: text
-    filters:
-      include_keywords: [AI, 大模型, Agent]
-    tags: [国内, 厂商, 技术]
-    enabled: true
-
-wechat:
-  - name: 微信公众号大模型
-    query: 大模型 AI
-    tags: [wechat, 搜索]
-    max_pages: 3
-    enabled: true
-
-  - name: 微信公众号智能体
-    query: 智能体 Agent LLM
-    tags: [wechat, 搜索]
-    max_pages: 3
     enabled: true
 
 daily:
   - name: AIbase日报
     url: https://news.aibase.com/zh/daily
     output_dir: data/daily
-    max_pages: 10
+    max_pages: 30
     api:
       url: "https://mcpapi.aibase.cn/api/aiInfo/dailyNews"
       method: GET
