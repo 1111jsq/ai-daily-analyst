@@ -49,3 +49,6 @@ output/
 # OS
 .DS_Store
 Thumbs.db
+
+# GitHub Credentials (本地使用，不上传)
+github-credentials.ini
