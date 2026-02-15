@@ -4,10 +4,11 @@
 import os
 import json
 import logging
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Dict, Optional
-import hashlib
+from collections import Counter
 
 from tavily import TavilyClient
 
@@ -19,9 +20,9 @@ from .config import (
     DATA_DIR,
     OUTPUT_DIR,
     LOG_LEVEL,
+    TECH_CATEGORIES,
 )
 
-# 配置日志
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL),
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -30,8 +31,6 @@ logger = logging.getLogger(__name__)
 
 
 class DailyNewsCollector:
-    """每日新闻收集器"""
-
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or TAVILY_API_KEY
         if not self.api_key:
@@ -39,7 +38,6 @@ class DailyNewsCollector:
         self.client = TavilyClient(api_key=self.api_key)
 
     def search_topic(self, topic: str, days: int = 1) -> List[Dict]:
-        """搜索单个主题的新闻"""
         query = f"{topic} AI news"
         try:
             results = self.client.search(
@@ -56,7 +54,6 @@ class DailyNewsCollector:
             return {}
 
     def collect_daily_news(self, date: Optional[datetime] = None) -> Dict:
-        """收集当日所有主题的新闻"""
         date = date or datetime.now()
         date_str = date.strftime("%Y-%m-%d")
         
@@ -67,13 +64,11 @@ class DailyNewsCollector:
             "articles": [],
         }
 
-        # 搜索每个主题
         for topic in DAILY_TOPICS:
             logger.info(f"正在搜索: {topic}")
             result = self.search_topic(topic)
             if result:
                 all_results["topics"][topic] = result
-                # 收集文章
                 for item in result.get("results", []):
                     article = {
                         "title": item.get("title", ""),
@@ -84,7 +79,6 @@ class DailyNewsCollector:
                     }
                     all_results["articles"].append(article)
 
-        # AI 总结
         if all_results["topics"]:
             first_topic = list(all_results["topics"].values())[0]
             all_results["ai_answer"] = first_topic.get("answer", "")
@@ -92,7 +86,6 @@ class DailyNewsCollector:
         return all_results
 
     def save_news(self, news_data: Dict) -> Path:
-        """保存新闻数据到文件"""
         date_str = news_data["date"]
         filename = f"news_{date_str}.json"
         filepath = DATA_DIR / filename
@@ -104,22 +97,53 @@ class DailyNewsCollector:
         return filepath
 
 
-class DailyAnalyst:
-    """每日分析师"""
+def categorize_article(title: str, content: str = "") -> str:
+    text = (title + " " + content).lower()
+    for category, keywords in TECH_CATEGORIES.items():
+        for kw in keywords:
+            if kw.lower() in text:
+                return category
+    return "其他"
 
+
+class DailyAnalyst:
     def __init__(self, news_collector: DailyNewsCollector):
         self.collector = news_collector
 
+    def categorize_articles(self, articles: List[Dict]) -> Dict[str, List[Dict]]:
+        categorized = {cat: [] for cat in TECH_CATEGORIES.keys()}
+        categorized["其他"] = []
+        
+        for article in articles:
+            category = categorize_article(article.get("title", ""), article.get("content", ""))
+            categorized[category].append(article)
+        
+        return {k: v for k, v in categorized.items() if v}
+
+    def generate_trend_summary(self, categorized: Dict[str, List[Dict]]) -> str:
+        summaries = []
+        category_counts = {cat: len(articles) for cat, articles in categorized.items()}
+        
+        for category, articles in categorized.items():
+            if not articles:
+                continue
+            top_articles = sorted(articles, key=lambda x: x.get("score", 0), reverse=True)[:3]
+            summaries.append(f"**{category}** ({len(articles)}篇)")
+            for art in top_articles:
+                summaries.append(f"- {art['title'][:60]}...")
+            summaries.append("")
+        
+        return "\n".join(summaries)
+
     def generate_analysis(self, news_data: Dict) -> str:
-        """生成每日分析文章"""
         date_str = news_data["date"]
         articles = news_data.get("articles", [])
         ai_answer = news_data.get("ai_answer", "")
 
-        # 按分数排序，取前10
+        categorized = self.categorize_articles(articles)
+        
         top_articles = sorted(articles, key=lambda x: x.get("score", 0), reverse=True)[:10]
 
-        # 生成文章
         content = f"""# 每日 AI 动态分析 - {date_str}
 
 ## 今日 AI 领域要闻
@@ -129,23 +153,36 @@ class DailyAnalyst:
         if ai_answer:
             content += f"**AI 总结：**{ai_answer}\n\n"
 
-        content += "## 重点新闻\n\n"
+        content += f"## 重点新闻 ({len(articles)}篇)\n\n"
 
         for i, article in enumerate(top_articles, 1):
+            cat = categorize_article(article.get("title", ""))
             content += f"### {i}. {article['title']}\n"
-            content += f"**来源：** {article.get('url', 'Unknown')}\n"
-            content += f"**相关领域：** {article.get('topic', 'AI')}\n"
+            content += f"**来源：** {article.get('url', 'Unknown')[:50]}...\n"
+            content += f"**类别：** {cat}\n"
             if article.get("content"):
                 content += f"\n{article['content']}\n"
             content += "\n---\n\n"
 
-        # 添加分析结语
+        content += self.generate_trend_summary(categorized)
+
         content += f"""
-## 分析总结
+## 类别分布
 
-今日 AI 领域共收集到 {len(articles)} 条相关新闻，以上为最具影响力的 {len(top_articles)} 条。
+| 类别 | 文章数 |
+|:---|:---:|
+"""
+        for cat, arts in sorted(categorized.items(), key=lambda x: len(x[1]), reverse=True):
+            content += f"| {cat} | {len(arts)} |\n"
 
-**关注焦点：** 本日新闻主要集中在模型更新、产品发布和应用落地等方面。
+        content += f"""
+---
+
+## 分析结语
+
+今日 AI 领域共收集到 **{len(articles)}** 条相关新闻，涵盖 {len(categorized)} 个技术领域。
+
+**核心关注：** 本日新闻主要集中在 {', '.join(list(categorized.keys())[:3])} 等领域，展现出{"、".join(list(categorized.keys())[:2])}技术的快速发展趋势。
 
 ---
 *本文由 AI 自动生成 | 发布日期：{date_str}*
@@ -154,7 +191,6 @@ class DailyAnalyst:
         return content
 
     def save_article(self, content: str, date_str: str) -> Path:
-        """保存分析文章"""
         filename = f"article_{date_str}.md"
         filepath = OUTPUT_DIR / filename
         
@@ -165,22 +201,15 @@ class DailyAnalyst:
         return filepath
 
     def run(self, date: Optional[datetime] = None) -> Dict:
-        """运行每日分析流程"""
         date = date or datetime.now()
         date_str = date.strftime("%Y-%m-%d")
         
         logger.info(f"开始生成 {date_str} 的每日分析...")
         
-        # 1. 收集新闻
         news_data = self.collector.collect_daily_news(date)
-        
-        # 2. 保存原始数据
         self.collector.save_news(news_data)
         
-        # 3. 生成分析
         article_content = self.generate_analysis(news_data)
-        
-        # 4. 保存文章
         article_path = self.save_article(article_content, date_str)
         
         return {
@@ -191,7 +220,6 @@ class DailyAnalyst:
 
 
 def main():
-    """主函数"""
     collector = DailyNewsCollector()
     analyst = DailyAnalyst(collector)
     result = analyst.run()

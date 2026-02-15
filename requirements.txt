@@ -6,6 +6,9 @@ tavily-python>=0.7.0
 # HTTP requests
 requests>=2.31.0
 
+# YAML config
+PyYAML>=6.0
+
 # WeChat SDK (可选)
 # wechatpy>=1.8.0
 
