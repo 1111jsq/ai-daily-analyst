@@ -4,6 +4,7 @@
 import os
 from pathlib import Path
 import yaml
+import configparser
 
 PROJECT_ROOT = Path(__file__).parent.parent
 
@@ -16,7 +17,17 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 CONFIG_DIR = PROJECT_ROOT / "config"
 CONFIG_DIR.mkdir(exist_ok=True)
 
-TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "")
+def load_credentials() -> dict:
+    cred_path = PROJECT_ROOT / "github-credentials.ini"
+    if cred_path.exists():
+        parser = configparser.ConfigParser()
+        parser.read(cred_path, encoding="utf-8")
+        return {s: dict(parser[s]) for s in parser.sections()}
+    return {}
+
+CREDENTIALS = load_credentials()
+
+TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", CREDENTIALS.get("tavily", {}).get("api_key", ""))
 
 WECHAT_APP_ID = os.environ.get("WECHAT_APP_ID", "")
 WECHAT_APP_SECRET = os.environ.get("WECHAT_APP_SECRET", "")
